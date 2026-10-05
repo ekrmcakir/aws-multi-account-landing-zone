@@ -1,0 +1,34 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyModifyingCoreSecurityRoles",
+      "Effect": "Deny",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DeleteRole",
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePermissionsBoundary",
+        "iam:PutRolePolicy",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:UpdateRole",
+        "iam:UpdateRoleDescription"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/LandingZoneAdminRole",
+        "arn:aws:iam::*:role/aws-controltower-*",
+        "arn:aws:iam::*:role/SecurityAuditRole",
+        "arn:aws:iam::*:role/IncidentResponseRole"
+      ],
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalARN": [
+            "arn:aws:iam::*:role/LandingZoneAdminRole"
+          ]
+        }
+      }
+    }
+  ]
+}
