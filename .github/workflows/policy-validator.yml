@@ -24,3 +24,6 @@ jobs:
 
       - name: "Run Transit Gateway Routing Simulator"
         run: python3 tests/test_tgw_routing_simulator.py
+
+      - name: "Run Architecture Intent & Purpose Tests"
+        run: python3 tests/test_landing_zone_intent.py
