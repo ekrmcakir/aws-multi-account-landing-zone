@@ -46,11 +46,11 @@ output "workload_account_ids" {
 output "scp_policy_ids" {
   description = "Map of applied Service Control Policies to their IDs"
   value = {
-    deny_root                  = aws_organizations_policy.deny_root.id
-    prevent_leave_org          = aws_organizations_policy.prevent_leave_org.id
-    deny_unauthorized_regions  = aws_organizations_policy.deny_unauthorized_regions.id
-    protect_security_services  = aws_organizations_policy.protect_security_services.id
-    enforce_s3_guardrails      = aws_organizations_policy.enforce_s3_guardrails.id
-    protect_iam_roles          = aws_organizations_policy.protect_iam_roles.id
+    deny_root                 = aws_organizations_policy.deny_root.id
+    prevent_leave_org         = aws_organizations_policy.prevent_leave_org.id
+    deny_unauthorized_regions = aws_organizations_policy.deny_unauthorized_regions.id
+    protect_security_services = aws_organizations_policy.protect_security_services.id
+    enforce_s3_guardrails     = aws_organizations_policy.enforce_s3_guardrails.id
+    protect_iam_roles         = aws_organizations_policy.protect_iam_roles.id
   }
 }

@@ -203,7 +203,7 @@ locals {
       }
     ]
   ])
-  
+
   firewall_endpoints_by_az = {
     for item in local.firewall_status_sync_states : item.az => item.endpoint_id
   }
