@@ -1,0 +1,47 @@
+name: "Terraform Format & Lint CI"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  validate:
+    name: "Validate Terraform Modules"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Code"
+        uses: actions/checkout@v4
+
+      - name: "Setup Terraform"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: "Check Terraform Formatting"
+        run: terraform fmt -check -recursive
+
+      - name: "Validate aws-organizations Module"
+        run: |
+          cd modules/aws-organizations
+          terraform init -backend=false
+          terraform validate
+
+      - name: "Validate transit-gateway-hub Module"
+        run: |
+          cd modules/transit-gateway-hub
+          terraform init -backend=false
+          terraform validate
+
+      - name: "Validate central-network-firewall Module"
+        run: |
+          cd modules/central-network-firewall
+          terraform init -backend=false
+          terraform validate
+
+      - name: "Validate spoke-vpc Module"
+        run: |
+          cd modules/spoke-vpc
+          terraform init -backend=false
+          terraform validate

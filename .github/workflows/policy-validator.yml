@@ -1,0 +1,26 @@
+name: "Policy & Routing Simulation Tests"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-policies-and-routes:
+    name: "Run SCP & TGW Simulators"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Code"
+        uses: actions/checkout@v4
+
+      - name: "Set up Python 3.11"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Run SCP Policy Schema & Logic Tests"
+        run: python3 tests/test_scp_policies.py
+
+      - name: "Run Transit Gateway Routing Simulator"
+        run: python3 tests/test_tgw_routing_simulator.py
