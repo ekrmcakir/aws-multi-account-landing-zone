@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AWS Multi-Account Landing Zone & Transit Gateway Simulator</title>
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-card: rgba(17, 24, 39, 0.85);
+      --bg-card-hover: rgba(31, 41, 55, 0.95);
+      --border-color: rgba(255, 255, 255, 0.1);
+      --accent-aws: #ff9900;
+      --accent-cyan: #06b6d4;
+      --accent-green: #10b981;
+      --accent-purple: #8b5cf6;
+      --accent-red: #ef4444;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0b0f19 70%);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .badge-aws {
+      background: rgba(255, 153, 0, 0.15);
+      border: 1px solid var(--accent-aws);
+      color: var(--accent-aws);
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      background: linear-gradient(90deg, #ffffff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header-stats {
+      display: flex;
+      gap: 12px;
+    }
+
+    .stat-pill {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--accent-green);
+    }
+
+    .grid-main {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 24px;
+    }
+
+    @media (max-width: 1024px) {
+      .grid-main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Topology Layout */
+    .topology-container {
+      position: relative;
+      background: rgba(10, 15, 30, 0.6);
+      border: 1px dashed rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      padding: 24px;
+      min-height: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .org-banner {
+      background: rgba(139, 92, 246, 0.15);
+      border: 1px solid rgba(139, 92, 246, 0.4);
+      padding: 10px 16px;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .topology-network {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr 1fr;
+      gap: 16px;
+      position: relative;
+    }
+
+    @media (max-width: 768px) {
+      .topology-network {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .vpc-node {
+      background: rgba(17, 24, 39, 0.9);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 14px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .vpc-node:hover, .vpc-node.active-trace {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 16px rgba(6, 182, 212, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .vpc-node.hub {
+      border-color: rgba(255, 153, 0, 0.4);
+      background: rgba(25, 20, 15, 0.9);
+    }
+
+    .vpc-node.hub.active-trace {
+      border-color: var(--accent-aws);
+      box-shadow: 0 0 20px rgba(255, 153, 0, 0.4);
+    }
+
+    .vpc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .vpc-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    .vpc-cidr {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .subnets-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .subnet-item {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.03);
+      display: flex;
+      justify-content: space-between;
+      color: #cbd5e1;
+    }
+
+    .subnet-item.fw {
+      border-left: 2px solid var(--accent-red);
+    }
+
+    .subnet-item.nat {
+      border-left: 2px solid var(--accent-aws);
+    }
+
+    .subnet-item.tgw {
+      border-left: 2px solid var(--accent-purple);
+    }
+
+    /* Simulator Panel */
+    .control-group {
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    select, input {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    select:focus, input:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    .btn-simulate {
+      width: 100%;
+      background: linear-gradient(135deg, #0284c7, #06b6d4);
+      color: #fff;
+      border: none;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+      box-shadow: 0 4px 14px rgba(6, 182, 212, 0.3);
+    }
+
+    .btn-simulate:hover {
+      opacity: 0.92;
+      transform: translateY(-1px);
+    }
+
+    /* Hop trace log */
+    .trace-log {
+      margin-top: 18px;
+      background: rgba(11, 15, 25, 0.95);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 14px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .trace-step {
+      padding: 6px 0;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .trace-step:last-child {
+      border-bottom: none;
+    }
+
+    .step-num {
+      color: var(--accent-cyan);
+      font-weight: 700;
+      min-width: 22px;
+    }
+
+    .step-text {
+      color: #cbd5e1;
+    }
+
+    .step-status-ok {
+      color: var(--accent-green);
+      font-weight: 700;
+    }
+
+    .step-status-drop {
+      color: var(--accent-red);
+      font-weight: 700;
+    }
+
+    /* SCP Table */
+    .scp-section {
+      margin-top: 24px;
+    }
+
+    .scp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .scp-table th {
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .scp-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .tag-enforced {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-green);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div class="brand">
+      <span class="badge-aws">AWS Organizations</span>
+      <h1>Enterprise Landing Zone & TGW Hub-and-Spoke</h1>
+    </div>
+    <div class="header-stats">
+      <div class="stat-pill"><span class="pulse-dot"></span> TGW ASN: 64512</div>
+      <div class="stat-pill">6 SCP Guardrails Active</div>
+      <div class="stat-pill">AWS Network Firewall: Enabled</div>
+    </div>
+  </header>
+
+  <div class="grid-main">
+    <!-- Left Column: Visual Architecture -->
+    <div class="card">
+      <div class="card-title">
+        <span>Architectural Topology Matrix</span>
+        <span style="font-size: 12px; color: var(--text-muted); font-weight: normal;">Multi-Account RAM Shared Mesh</span>
+      </div>
+
+      <div class="topology-container">
+        <!-- Root Org Header -->
+        <div class="org-banner">
+          <span><strong>AWS Organization Root (o-enterprise-lz)</strong> — Feature Set: ALL</span>
+          <span>Core OUs: [Core, Workloads, Sandbox]</span>
+        </div>
+
+        <!-- Network Grid -->
+        <div class="topology-network">
+          <!-- Workload Dev -->
+          <div class="vpc-node" id="node-dev" onclick="selectSource('dev')">
+            <div class="vpc-header">
+              <span class="vpc-name">Workload Dev (Non-Prod)</span>
+              <span class="vpc-cidr">10.2.0.0/16</span>
+            </div>
+            <div class="subnets-list">
+              <div class="subnet-item">App Subnet: 10.2.1.0/24</div>
+              <div class="subnet-item">DB Subnet: 10.2.10.0/24</div>
+              <div class="subnet-item tgw">TGW Attachment: 10.2.100.0/24</div>
+            </div>
+          </div>
+
+          <!-- Central Hub -->
+          <div class="vpc-node hub" id="node-hub">
+            <div class="vpc-header">
+              <span class="vpc-name" style="color: var(--accent-aws);">Central Network Hub (Core)</span>
+              <span class="vpc-cidr">10.0.0.0/16</span>
+            </div>
+            <div class="subnets-list">
+              <div class="subnet-item tgw">Transit Gateway Attachment Subnet</div>
+              <div class="subnet-item fw">AWS Network Firewall Stateful Endpoints</div>
+              <div class="subnet-item nat">Central NAT Gateways &amp; IGW</div>
+            </div>
+          </div>
+
+          <!-- Workload Prod -->
+          <div class="vpc-node" id="node-prod" onclick="selectSource('prod')">
+            <div class="vpc-header">
+              <span class="vpc-name">Workload Prod (Production)</span>
+              <span class="vpc-cidr">10.1.0.0/16</span>
+            </div>
+            <div class="subnets-list">
+              <div class="subnet-item">App Subnet: 10.1.1.0/24</div>
+              <div class="subnet-item">DB Subnet: 10.1.10.0/24</div>
+              <div class="subnet-item tgw">TGW Attachment: 10.1.100.0/24</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shared Services Node -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px;">
+          <div class="vpc-node" id="node-shared" onclick="selectSource('shared')">
+            <div class="vpc-header">
+              <span class="vpc-name">Shared Services (Core)</span>
+              <span class="vpc-cidr">10.3.0.0/16</span>
+            </div>
+            <div class="subnets-list">
+              <div class="subnet-item">Internal CI/CD &amp; DNS: 10.3.1.0/24</div>
+              <div class="subnet-item tgw">TGW Attachment: 10.3.100.0/24</div>
+            </div>
+          </div>
+
+          <div class="vpc-node" id="node-security" style="opacity: 0.85;">
+            <div class="vpc-header">
+              <span class="vpc-name">Security &amp; Audit Tooling (Core)</span>
+              <span class="vpc-cidr">Org Delegated Admin</span>
+            </div>
+            <div class="subnets-list">
+              <div class="subnet-item">AWS GuardDuty Master &amp; SecurityHub</div>
+              <div class="subnet-item">Immutable S3 Org CloudTrail Bucket</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Packet Tracer Simulator -->
+    <div class="card">
+      <div class="card-title">
+        <span>Packet Flow Simulator</span>
+        <span style="font-size: 11px; color: var(--accent-cyan);">Deterministic Routing</span>
+      </div>
+
+      <div class="control-group">
+        <label for="sel-source">Packet Source</label>
+        <select id="sel-source">
+          <option value="dev">Workload Dev (10.2.1.50)</option>
+          <option value="prod">Workload Prod (10.1.1.20)</option>
+          <option value="shared">Shared Services (10.3.1.15)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="sel-dest">Destination &amp; Traffic Type</label>
+        <select id="sel-dest">
+          <option value="prod-web">Workload Prod App (10.1.1.20:443) [East-West]</option>
+          <option value="internet-aws">AWS API S3 Endpoint (443) [Allowed Egress]</option>
+          <option value="internet-github">GitHub Repository CI (github.com:443) [Allowed Egress]</option>
+          <option value="internet-ssh-blocked">Public Server SSH (54.21.3.4:22) [Port Blocked]</option>
+          <option value="internet-smb-blocked">Public SMB Share (54.21.3.4:445) [Port Blocked]</option>
+        </select>
+      </div>
+
+      <button class="btn-simulate" onclick="runTrace()">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        Simulate Packet Hop &amp; Inspection
+      </button>
+
+      <div class="trace-log" id="trace-log">
+        <div style="color: var(--text-muted); text-align: center; padding: 20px 0;">
+          Select parameters and click simulate to view real-time packet trajectory.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Section: SCP Matrix -->
+  <div class="card scp-section">
+    <div class="card-title">
+      <span>Service Control Policies (SCPs) Guardrails Matrix</span>
+      <span class="tag-enforced">Zero Bypass Allowed</span>
+    </div>
+
+    <table class="scp-table">
+      <thead>
+        <tr>
+          <th>SCP Name</th>
+          <th>Applied Target OU</th>
+          <th>Security Objective</th>
+          <th>Effect</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>SCP-DenyUnauthorizedRegions</code></td>
+          <td>Core, Workloads OUs</td>
+          <td>Restricts AWS API calls exclusively to eu-central-1, eu-west-1, us-east-1</td>
+          <td><strong style="color: var(--accent-red);">DENY</strong></td>
+          <td><span class="tag-enforced">Enforced</span></td>
+        </tr>
+        <tr>
+          <td><code>SCP-DenyRootAccountUsage</code></td>
+          <td>Root (All Accounts)</td>
+          <td>Blocks all API and console operations initiated by AWS Root credentials</td>
+          <td><strong style="color: var(--accent-red);">DENY</strong></td>
+          <td><span class="tag-enforced">Enforced</span></td>
+        </tr>
+        <tr>
+          <td><code>SCP-ProtectSecurityBaselines</code></td>
+          <td>Workloads OU</td>
+          <td>Prevents disabling CloudTrail, GuardDuty, AWS Config, and VPC Flow Logs</td>
+          <td><strong style="color: var(--accent-red);">DENY</strong></td>
+          <td><span class="tag-enforced">Enforced</span></td>
+        </tr>
+        <tr>
+          <td><code>SCP-PreventLeavingOrganization</code></td>
+          <td>Root (All Accounts)</td>
+          <td>Prevents member accounts from disconnecting from centralized billing & governance</td>
+          <td><strong style="color: var(--accent-red);">DENY</strong></td>
+          <td><span class="tag-enforced">Enforced</span></td>
+        </tr>
+        <tr>
+          <td><code>SCP-EnforceS3EncryptionAndBlockPublic</code></td>
+          <td>Workloads OU</td>
+          <td>Blocks unencrypted S3 object writes and prohibits tampering with Public Access Blocks</td>
+          <td><strong style="color: var(--accent-red);">DENY</strong></td>
+          <td><span class="tag-enforced">Enforced</span></td>
+        </tr>
+        <tr>
+          <td><code>SCP-ProtectSecurityRoles</code></td>
+          <td>Core, Workloads OUs</td>
+          <td>Prevents tampering, deletion, or permission reduction of LandingZoneAdminRole</td>
+          <td><strong style="color: var(--accent-red);">DENY</strong></td>
+          <td><span class="tag-enforced">Enforced</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  function selectSource(src) {
+    document.getElementById('sel-source').value = src;
+    runTrace();
+  }
+
+  function runTrace() {
+    const src = document.getElementById('sel-source').value;
+    const dest = document.getElementById('sel-dest').value;
+    const log = document.getElementById('trace-log');
+
+    // Reset visual active
+    document.querySelectorAll('.vpc-node').forEach(el => el.classList.remove('active-trace'));
+    
+    // Highlight src
+    const srcNode = document.getElementById('node-' + src);
+    if (srcNode) srcNode.classList.add('active-trace');
+    document.getElementById('node-hub').classList.add('active-trace');
+
+    let steps = [];
+
+    // Hop 1
+    const srcName = src === 'dev' ? 'Workload Dev (10.2.1.50)' : (src === 'prod' ? 'Workload Prod (10.1.1.20)' : 'Shared Services (10.3.1.15)');
+    steps.push({
+      num: '01',
+      title: 'Spoke Route Table Lookup',
+      desc: `${srcName} matches 10.0.0.0/8 or 0.0.0.0/0 &rarr; Forwarded to Transit Gateway Attachment ENI.`
+    });
+
+    // Hop 2
+    steps.push({
+      num: '02',
+      title: 'TGW Inbound Route Table',
+      desc: 'Transit Gateway Spoke Inbound RT enforces mandatory redirect to Central Inspection VPC Attachment.'
+    });
+
+    // Hop 3
+    steps.push({
+      num: '03',
+      title: 'Central Inspection VPC Ingress',
+      desc: 'Packet enters Inspection VPC TGW Subnet &rarr; Route Table points 0.0.0.0/0 to AWS Network Firewall VPC Endpoint.'
+    });
+
+    // Hop 4: Firewall verdict
+    if (dest === 'internet-ssh-blocked') {
+      steps.push({
+        num: '04',
+        title: 'AWS Network Firewall Stateful Engine',
+        desc: '<span class="step-status-drop">SECURITY DROP:</span> Suricata SID:1000001 triggered! TCP Port 22 (SSH) outbound is strictly prohibited.',
+        drop: true
+      });
+    } else if (dest === 'internet-smb-blocked') {
+      steps.push({
+        num: '04',
+        title: 'AWS Network Firewall Stateful Engine',
+        desc: '<span class="step-status-drop">SECURITY DROP:</span> Suricata SID:1000001 triggered! TCP Port 445 (SMB) prohibited to prevent ransomware lateral egress.',
+        drop: true
+      });
+    } else {
+      steps.push({
+        num: '04',
+        title: 'AWS Network Firewall Stateful Engine',
+        desc: '<span class="step-status-ok">INSPECTION PASSED:</span> 5-tuple verification approved. Traffic allowed per egress whitelist rule group.'
+      });
+
+      if (dest === 'prod-web') {
+        const prodNode = document.getElementById('node-prod');
+        if (prodNode) prodNode.classList.add('active-trace');
+
+        steps.push({
+          num: '05',
+          title: 'Firewall Route Table & Return to TGW',
+          desc: 'Destination 10.1.1.20 matches 10.0.0.0/8 &rarr; Sent back to Transit Gateway Attachment.'
+        });
+        steps.push({
+          num: '06',
+          title: 'TGW Post-Inspection Route Table',
+          desc: 'Destination 10.1.0.0/16 matches propagated Prod attachment &rarr; <span class="step-status-ok">DELIVERED</span> to Workload Prod App Subnet!'
+        });
+      } else {
+        steps.push({
+          num: '05',
+          title: 'Central NAT Gateway Forwarding',
+          desc: 'Destination matches 0.0.0.0/0 &rarr; NAT Subnet translates to Elastic IP and forwards to Internet Gateway.'
+        });
+        steps.push({
+          num: '06',
+          title: 'Central Internet Gateway Egress',
+          desc: 'Packet successfully exits via Central Network Hub Public IGW &rarr; <span class="step-status-ok">EGRESSED SECURELY</span>.'
+        });
+      }
+    }
+
+    // Render steps
+    log.innerHTML = '';
+    steps.forEach((s, idx) => {
+      setTimeout(() => {
+        const row = document.createElement('div');
+        row.className = 'trace-step';
+        row.innerHTML = `
+          <div class="step-num">${s.num}</div>
+          <div class="step-text">
+            <strong>${s.title}</strong><br/>
+            ${s.desc}
+          </div>
+        `;
+        log.appendChild(row);
+        log.scrollTop = log.scrollHeight;
+      }, idx * 120);
+    });
+  }
+</script>
+</body>
+</html>
