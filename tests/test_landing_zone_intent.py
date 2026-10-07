@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-AWS Enterprise Landing Zone - Architecture Purpose & Intent Test Suite (Amaca Yönelik Doğrulama)
+AWS Enterprise Landing Zone - Architecture Purpose & Intent Test Suite
 
-Bu test paketi, mimarinin tasarım ve güvenlik AMAÇLARINI (Architectural Intent & Security Goals)
-simülasyon ve kural tabanlı doğrulamalarla test eder:
-1. [Guardrail Amacı] Root hesabının API kullanımının engellenmesi
-2. [Guardrail Amacı] Yetkisiz AWS Region'larında kaynak açılmasının engellenmesi
-3. [Guardrail Amacı] Güvenlik izleme servislerinin (CloudTrail, GuardDuty, Flow Logs) kapatılmasının engellenmesi
-4. [Guardrail Amacı] S3 public erişim açılması ve şifresiz obje yüklenmesinin engellenmesi
-5. [Guardrail Amacı] Üye hesapların organizasyondan ayrılmasının engellenmesi
-6. [Ağ İzolasyonu Amacı] Hesaplar arası IP çakışmasının (CIDR Overlap) önlenmesi
-7. [Ağ İzolasyonu Amacı] Spoke VPC'lerin doğrudan internet çıkışının (IGW/NAT) olmaması (Air-Gapped Spokes)
-8. [Ağ Güvenliği Amacı] East-West (Dev -> Prod) trafiğin Network Firewall'u bypass edememesi
-9. [Ağ Güvenliği Amacı] Dışarıya yönelik zararlı portların (SSH:22, SMB:445, RDP:3389) Firewall tarafından engellenmesi
-10. [Ağ Güvenliği Amacı] Onaylı dış domainlere (.amazonaws.com, .github.com) merkezi NAT üzerinden kontrollü çıkış
+This test suite validates the architectural intent and security objectives of the landing zone
+using deterministic rule-based verification and simulation:
+1. [Guardrail Intent] Restrict AWS Root account API credentials and console access
+2. [Guardrail Intent] Prevent resource provisioning outside approved AWS regions
+3. [Guardrail Intent] Prevent disabling or deleting core security monitoring tools (CloudTrail, GuardDuty, Flow Logs)
+4. [Guardrail Intent] Enforce S3 encryption and block public access alterations
+5. [Guardrail Intent] Prevent member accounts from detaching or leaving the AWS Organization
+6. [Network Isolation Intent] Prevent CIDR block overlap across all accounts and VPCs
+7. [Network Isolation Intent] Verify air-gapped Spoke VPCs (no local IGW or NAT Gateways)
+8. [Network Security Intent] Enforce East-West (Dev -> Prod) routing through AWS Network Firewall
+9. [Network Security Intent] Block insecure outbound management ports (SSH:22, SMB:445, RDP:3389) via Firewall
+10. [Network Security Intent] Whitelist approved external domains (.amazonaws.com, .github.com) via Central NAT
 """
 
 import ipaddress
@@ -31,13 +31,13 @@ ENVIRONMENTS_DIR = BASE_DIR / "environments"
 class ArchitectureIntentTests(unittest.TestCase):
 
     # =========================================================================
-    # BÖLÜM 1: AWS ORGANIZATIONS & SCP GÜVENLİK GUARDRAIL AMAÇLARI
+    # SECTION 1: AWS ORGANIZATIONS & SCP SECURITY GUARDRAIL INTENT
     # =========================================================================
 
     def test_intent_root_account_is_strictly_locked_down(self):
         """
-        AMAC: AWS Root hesabı günlük operasyonlarda asla kullanılmamalıdır.
-        SCP'nin tüm Root API çağrılarını kartsız şartsız DENY ettiğini doğrular.
+        INTENT: AWS Root user credentials must never be used for day-to-day operations.
+        Verifies the SCP explicitly denies all root API actions unconditionally.
         """
         policy_file = POLICIES_DIR / "deny_root_account_usage.json"
         with open(policy_file, "r") as f:
@@ -56,13 +56,14 @@ class ArchitectureIntentTests(unittest.TestCase):
 
         self.assertTrue(
             found_root_lockdown,
-            "HATA: Root hesabını engelleyen SCP kuralı bulunamadı veya yetersiz!",
+            "ERROR: Missing or insufficient SCP rule to block root account usage!",
         )
 
     def test_intent_prevent_unauthorized_region_creation(self):
         """
-        AMAC: Veri egemenliği ve gölge BT'yi önlemek için onaylanmamış region'lar engellenmelidir.
-        Sadece eu-central-1, eu-west-1 ve us-east-1 haricindeki region çağrılarının DENY edildiğini doğrular.
+        INTENT: Enforce data sovereignty and prevent shadow IT by blocking unapproved regions.
+        Verifies API calls outside eu-central-1, eu-west-1, and us-east-1 are denied,
+        while exempting global services (IAM, Route53, CloudFront).
         """
         policy_file = POLICIES_DIR / "deny_unauthorized_regions.json"
         with open(policy_file, "r") as f:
@@ -72,16 +73,16 @@ class ArchitectureIntentTests(unittest.TestCase):
         self.assertEqual(stmt["Effect"], "Deny")
         allowed_regions = stmt["Condition"]["StringNotEquals"]["aws:RequestedRegion"]
 
-        # Hedeflenen onaylı bölgeler
+        # Expected approved regions
         expected_regions = ["eu-central-1", "eu-west-1", "us-east-1"]
         for region in expected_regions:
             self.assertIn(
                 region,
                 allowed_regions,
-                f"Onaylı region {region} SCP kuralında tanımlı değil!",
+                f"Approved region {region} is missing from the SCP whitelist!",
             )
 
-        # Global servislerin (IAM, Route53, CloudFront) kilitlenmediğini doğrula
+        # Verify global services (IAM, Route53, CloudFront) are exempted
         not_actions = stmt.get("NotAction", [])
         self.assertIn("iam:*", not_actions)
         self.assertIn("organizations:*", not_actions)
@@ -89,7 +90,8 @@ class ArchitectureIntentTests(unittest.TestCase):
 
     def test_intent_security_audit_tools_cannot_be_disabled(self):
         """
-        AMAC: Saldırgan bir hesabı ele geçirse bile CloudTrail, GuardDuty ve Config loglamayı kapatamamalıdır.
+        INTENT: An adversary compromising a member account must not be able to
+        disable CloudTrail, GuardDuty, AWS Config, or VPC Flow Logs.
         """
         policy_file = POLICIES_DIR / "protect_security_services.json"
         with open(policy_file, "r") as f:
@@ -104,7 +106,7 @@ class ArchitectureIntentTests(unittest.TestCase):
                 else:
                     denied_actions.append(actions)
 
-        # Kritik korunan aksiyonlar
+        # Critical protected actions
         critical_actions = [
             "cloudtrail:StopLogging",
             "cloudtrail:DeleteTrail",
@@ -115,12 +117,12 @@ class ArchitectureIntentTests(unittest.TestCase):
         ]
         for act in critical_actions:
             self.assertIn(
-                act, denied_actions, f"Kritik güvenlik aksiyonu {act} SCP tarafından engellenmiyor!"
+                act, denied_actions, f"Critical security action {act} is not blocked by SCP!"
             )
 
     def test_intent_s3_data_leak_and_unencrypted_upload_prevention(self):
         """
-        AMAC: S3 kovalarından veri sızıntısını ve şifresiz veri depolanmasını engellemek.
+        INTENT: Prevent data exfiltration from public S3 buckets and block unencrypted object storage writes.
         """
         policy_file = POLICIES_DIR / "enforce_s3_encryption_and_block_public.json"
         with open(policy_file, "r") as f:
@@ -139,12 +141,12 @@ class ArchitectureIntentTests(unittest.TestCase):
                     if cond.get("s3:x-amz-server-side-encryption") == "true":
                         found_encryption_enforcement = True
 
-        self.assertTrue(found_public_block, "S3 Public Access Block kaldırılmasını engelleyen kural eksik!")
-        self.assertTrue(found_encryption_enforcement, "Şifresiz S3 PutObject çağrılarını engelleyen kural eksik!")
+        self.assertTrue(found_public_block, "SCP is missing enforcement for S3 Account Public Access Block!")
+        self.assertTrue(found_encryption_enforcement, "SCP is missing enforcement for S3 server-side encryption!")
 
     def test_intent_prevent_leaving_organization(self):
         """
-        AMAC: Hesapların merkezi faturalandırma ve güvenlik şemsiyesinden çıkışını engellemek.
+        INTENT: Prevent member accounts from escaping centralized billing, compliance, and security governance.
         """
         policy_file = POLICIES_DIR / "prevent_leaving_organization.json"
         with open(policy_file, "r") as f:
@@ -155,12 +157,12 @@ class ArchitectureIntentTests(unittest.TestCase):
         self.assertIn("organizations:LeaveOrganization", stmt["Action"])
 
     # =========================================================================
-    # BÖLÜM 2: MERKEZİ AĞ (HUB-AND-SPOKE) VE GÜVENLİK AMAÇLARI
+    # SECTION 2: CENTRALIZED HUB-AND-SPOKE NETWORK & FIREWALL INTENT
     # =========================================================================
 
     def test_intent_zero_cidr_overlap_across_all_accounts(self):
         """
-        AMAC: Kurumsal Landing Zone'da hiçbir hesabın/VPC'nin CIDR bloğu birbiriyle çakışmamalıdır.
+        INTENT: Ensure deterministic routing with zero IP address overlap across all accounts and VPC CIDR blocks.
         """
         account_cidrs = {
             "Network Hub (Inspection VPC)": ipaddress.ip_network("10.0.0.0/16"),
@@ -169,7 +171,7 @@ class ArchitectureIntentTests(unittest.TestCase):
             "Shared Services": ipaddress.ip_network("10.3.0.0/16"),
         }
 
-        # İkili karşılaştırma yaparak çakışma (overlap) kontrolü
+        # Pairwise comparison to verify no subnets overlap
         names = list(account_cidrs.keys())
         for i in range(len(names)):
             for j in range(i + 1, len(names)):
@@ -177,38 +179,38 @@ class ArchitectureIntentTests(unittest.TestCase):
                 name2, net2 = names[j], account_cidrs[names[j]]
                 self.assertFalse(
                     net1.overlaps(net2),
-                    f"CIDR ÇAKIŞMASI TESPİT EDİLDİ! {name1} ({net1}) ile {name2} ({net2}) çakışıyor!",
+                    f"CIDR OVERLAP DETECTED! {name1} ({net1}) overlaps with {name2} ({net2})!",
                 )
 
     def test_intent_spoke_vpcs_are_isolated_air_gapped(self):
         """
-        AMAC: Spoke hesaplarında (Prod, Dev) Internet Gateway (IGW) veya yerel NAT Gateway bulunmamalıdır.
-        Tüm dış dünya trafiği doğrudan Transit Gateway'e yönlendirilmelidir.
+        INTENT: Spoke workload VPCs (Prod, Dev) must not have direct Internet Gateways (IGW) or local NAT Gateways;
+        all external traffic must route to Transit Gateway.
         """
         spoke_tf = MODULES_DIR / "spoke-vpc" / "main.tf"
         with open(spoke_tf, "r") as f:
             content = f.read()
 
-        # aws_internet_gateway veya aws_nat_gateway tanımlı olmamalıdır
+        # Ensure no aws_internet_gateway or aws_nat_gateway is created in Spoke VPCs
         self.assertNotIn(
             'resource "aws_internet_gateway"',
             content,
-            "HATA: Spoke VPC içerisinde Internet Gateway tanımlanamaz!",
+            "ERROR: Spoke VPC must not declare an Internet Gateway!",
         )
         self.assertNotIn(
             'resource "aws_nat_gateway"',
             content,
-            "HATA: Spoke VPC içerisinde yerel NAT Gateway tanımlanamaz! Egress merkezi olmalıdır.",
+            "ERROR: Spoke VPC must not declare a local NAT Gateway! Egress must be centralized.",
         )
 
-        # 0.0.0.0/0 rotasının Transit Gateway'e gittiğini doğrula
+        # Verify 0.0.0.0/0 route is directed to Transit Gateway
         self.assertIn('cidr_block         = "0.0.0.0/0"', content)
         self.assertIn("transit_gateway_id = var.transit_gateway_id", content)
 
     def test_intent_transit_gateway_segments_spoke_and_inspection_routes(self):
         """
-        AMAC: TGW varsayılan rotalamayı (default propagation/association) devre dışı bırakarak
-        tüm trafiği zorunlu olarak Inspection VPC Route Table'a yönlendirmelidir.
+        INTENT: TGW must disable default propagation and association, strictly steering Spoke traffic
+        into the Central Inspection Route Table.
         """
         tgw_tf = MODULES_DIR / "transit-gateway-hub" / "main.tf"
         with open(tgw_tf, "r") as f:
@@ -221,23 +223,23 @@ class ArchitectureIntentTests(unittest.TestCase):
 
     def test_intent_network_firewall_blocks_prohibited_ports(self):
         """
-        AMAC: AWS Network Firewall; SSH (22), SMB (445), Telnet (23), RDP (3389) gibi
-        yönetimsel portların internete çıkışını engellemelidir.
+        INTENT: AWS Network Firewall must intercept and drop outbound management ports
+        (SSH:22, SMB:445, Telnet:23, RDP:3389).
         """
         firewall_tf = MODULES_DIR / "central-network-firewall" / "main.tf"
         with open(firewall_tf, "r") as f:
             content = f.read()
 
-        # Suricata kural kontrolü
+        # Check Suricata drop rule for prohibited ports
         suricata_drop_pattern = r"drop tcp any any -> any \[22,23,25,445,1433,3389\]"
         self.assertTrue(
             re.search(suricata_drop_pattern, content),
-            "Firewall kurallarında yasaklı portları DROP eden Suricata kuralı bulunamadı!",
+            "Suricata rule dropping prohibited management ports was not found in firewall configuration!",
         )
 
     def test_intent_network_firewall_whitelists_secure_outbound_domains(self):
         """
-        AMAC: Dışarıya giden HTTPS trafiğinde sadece güvenli kurumsal domainlere (.amazonaws.com, .github.com) izin verilmelidir.
+        INTENT: Outbound TLS traffic must strictly whitelist approved corporate domains (.amazonaws.com, .github.com).
         """
         firewall_tf = MODULES_DIR / "central-network-firewall" / "main.tf"
         with open(firewall_tf, "r") as f:
@@ -248,8 +250,8 @@ class ArchitectureIntentTests(unittest.TestCase):
 
     def test_intent_terragrunt_orchestrates_multi_account_dependencies(self):
         """
-        AMAC: Terragrunt hesap bağımlılıklarını hiyerarşik olarak çözmelidir.
-        Workload Prod ve Dev hesapları, Network Hub çıktısına (TGW ID) bağımlı olmalıdır.
+        INTENT: Terragrunt must orchestrate account dependencies hierarchically,
+        passing TGW outputs from Network Hub to Workload Spokes.
         """
         prod_hcl = ENVIRONMENTS_DIR / "account-workload-prod" / "terragrunt.hcl"
         with open(prod_hcl, "r") as f:
